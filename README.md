@@ -21,6 +21,16 @@ This script requires the following R packages to be installed:
 * [lemon](https://cran.r-project.org/web/packages/lemon/index.html)
 * [bedr](https://cran.r-project.org/web/packages/bedr/index.html)
 
+### Getting This Tool
+
+After installing required packages/tools, do:
+
+```
+git pull https://github.com/mrcepid-rap/mrcepid-lolliplotmaker.git
+cd mrcepid-lolliplotmaker/
+./lolliplot_maker.R <PHENOTYPE>.bolt.markers.BOLT.stats.tsv.gz <MASK> <MAF> <ENST>
+```
+
 ## Running
 
 To run this tool, use a command line like the following:
