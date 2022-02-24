@@ -26,7 +26,7 @@ This script requires the following R packages to be installed:
 After installing required packages/tools, do:
 
 ```
-git pull https://github.com/mrcepid-rap/mrcepid-lolliplotmaker.git
+git clone https://github.com/mrcepid-rap/mrcepid-lolliplotmaker.git
 cd mrcepid-lolliplotmaker/
 ./lolliplot_maker.R <PHENOTYPE>.bolt.markers.BOLT.stats.tsv.gz <MASK> <MAF> <ENST>
 ```
