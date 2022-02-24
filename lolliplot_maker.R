@@ -2,7 +2,6 @@
 
 library(tidyverse)
 library(data.table)
-library(patchwork)
 library(lemon)
 library(bedr)
 
