@@ -37,7 +37,7 @@ Where:
 
 ```
 bgzip <PHENOTYPE>.bolt.markers.BOLT.stats.tsv
-tabix tabix -S 1 -s 2 -b 3 -e 4 <PHENOTYPE>.bolt.markers.BOLT.stats.tsv.gz
+tabix -S 1 -s 2 -b 3 -e 4 <PHENOTYPE>.bolt.markers.BOLT.stats.tsv.gz
 ```
 
 bgzip/tabix must be installed and in your path to work, but this should already be the case as a requirement of this tool is to have tabix.
