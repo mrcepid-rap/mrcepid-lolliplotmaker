@@ -26,7 +26,7 @@ This script requires the following R packages to be installed:
 To run this tool, use a command line like the following:
 
 ```
-./lolliplot_maker.R <PHENOTYPE>.bolt.markers.BOLT.stats.tsv.gz <MASK> <MAF> <ENST>>
+./lolliplot_maker.R <PHENOTYPE>.bolt.markers.BOLT.stats.tsv.gz <MASK> <MAF> <ENST>
 ```
 
 Where:
