@@ -1,0 +1,219 @@
+#!/usr/bin/env Rscript --vanilla
+
+library(tidyverse)
+library(data.table)
+library(patchwork)
+library(lemon)
+library(bedr)
+
+# Read in inputs. They are:
+# 1. [1] Markers file output from BOLT
+# 2. [2] Mask name - MUST be the same as in the per-gene marker file
+# 3. [3] MAF name - MUST be the same as in the per-gene marker file
+# 4. [4] ENST ID of the gene you wish to plot
+args = commandArgs(trailingOnly = T)
+markers_file = args[1]
+mask = args[2]
+maf = args[3]
+enst = args[4]
+
+# Eugene's Default Theme:
+theme <- theme(panel.background=element_rect(fill="white"),
+               line=element_line(size=1,colour="black",lineend="round"),
+               axis.line=element_line(size=1),
+               text=element_text(size=16,face="bold",colour="black"),
+               axis.text=element_text(colour="black"),
+               axis.ticks=element_line(size=1,colour="black"),
+               axis.ticks.length=unit(.1,"cm"),
+               axis.ticks.x = element_blank(),
+               strip.background=element_rect(fill="white"),
+               axis.text.x = element_blank(),
+               legend.position="right",
+               panel.grid.major=element_blank(),
+               legend.key=element_blank())
+
+# Load transcripts and get info for gene of interest
+transcripts <- fread("data/transcripts.tsv.gz")
+gene_info <- transcripts[ENST == enst]
+if (nrow(gene_info) > 1) {
+  stop(paste0("Found more than one gene with symbol ", symbol, ". Please try again."))
+}
+
+# Now load the gene's exon model:
+exon_models <- fread("data/exon_models.txt.gz")
+setnames(exon_models, names(exon_models), c("transcript","cdsStart","cdsEnd","numExons","exonStarts","exonEnds","transcriptType"))
+exon_models[,transcript:=str_split(transcript,"\\.",simplify = T)[1],by=1:nrow(exon_models)]
+ensembl_annotation_gene <- exon_models[transcript == enst]
+
+# Decide which query to use:
+query <- switch (mask, 
+                 "HC_PTV"='FILTER=="PASS" & PARSED_CSQ=="PTV" & LOFTEE=="HC"',
+                 "PTV"='FILTER=="PASS" & PARSED_CSQ=="PTV"',
+                 "MISS"='FILTER=="PASS" & PARSED_CSQ=="MISSENSE"',
+                 "MISS_CADD25"='FILTER=="PASS" & PARSED_CSQ=="MISSENSE" & CADD>=25',
+                 "MISS_REVEL0_5"='PARSED_CSQ=="MISSENSE" & REVEL>=0.5',
+                 "MISS_REVEL0_7"='FILTER=="PASS" & PARSED_CSQ=="MISSENSE" & REVEL>=0.7',
+                 "MISS_CADD25_REVEL0_7"='PARSED_CSQ=="MISSENSE" & CADD>=25 & REVEL>=0.7',
+                 "SYN"='FILTER=="PASS" & PARSED_CSQ=="SYN"',
+                 "DMG"='FILTER=="PASS" & ((PARSED_CSQ=="PTV" & LOFTEE=="HC") | (PARSED_CSQ=="MISSENSE" & CADD>=25))'
+        )
+
+if (is.null(query)) {
+  stop(paste0("Mask name - ", mask, " - was not parsed properly. Please try again!"))
+}
+
+if (maf == "MAF_01") {
+  query <- paste0(query, ' & AF<0.001')
+} else if (maf == "AC_1") {
+  query <- paste0(query, ' & AC==1')
+} else {
+  stop(paste0("MAF name - ", maf, " - was not parsed properly. Please try again!"))
+}
+
+# Grab Current Tabix Header and extract variants with tabix
+res <- system(paste0("zcat < ", markers_file, " | head -n 1"), wait = T, intern = T)
+if (length(res) == 0) {
+  res <- system(paste0("zcat ", markers_file, " | head -n 1"), wait = T, intern = T)
+  if (length(res) == 0) {
+    stop(paste0("could not parse the header of the provided markers file..."))
+  }
+}
+tabix.header <- str_split(res, "\t")[[1]]
+variants <- data.table(tabix(region = gene_info[,coord], file.name = markers_file))
+setnames(variants, names(variants), tabix.header)
+# This is dumb, because the tabix parser doesn't check if things are integers or not...
+variants[,AF:=as.double(AF)]
+variants[,CADD:=as.double(CADD)]
+variants[,REVEL:=as.double(REVEL)]
+variants[,BOLT_AC:=as.double(BOLT_AC)]
+variants[,POS:=as.integer(POS)]
+variants[,P_BOLT_LMM_INF:=as.double(P_BOLT_LMM_INF)]
+variants[,BETA:=as.double(BETA)]
+
+# Make sure the right gene is included
+variants <- variants[ENST == enst]
+
+# Make sure the right variants are include
+variants <- variants[eval(parse(text=query))]
+variants <- variants[BOLT_AC > 0]
+
+# Here we plot the actual lolliplot
+## First step is to setup the appropriate gene model with "tiny" introns so that the reader can focus on coding sequence
+# Create initial exon breakpoints
+coding.start <- ensembl_annotation_gene[,cdsStart]
+coding.end <- ensembl_annotation_gene[,cdsEnd]
+
+exon.starts <- as.integer(unlist(str_split(ensembl_annotation_gene[,exonStarts],",")))
+exon.starts <- exon.starts[1:length(exon.starts)-1]
+exon.ends <-  as.integer(unlist(str_split(ensembl_annotation_gene[,exonEnds],",")))
+exon.ends <- exon.ends[1:length(exon.ends)-1]
+
+pos.map <- data.table()
+gene.map <- data.table()
+last.pos <- 1
+for (i in 1:length(exon.starts)) {
+  if (exon.starts[i] < coding.start && exon.ends[i] < coding.start) {
+    # all UTR
+    gene.map <- rbind(gene.map,
+                      data.table(start = exon.starts[i],
+                                 end = exon.ends[i],
+                                 ymin = -0.25,
+                                 ymax = 0.25,
+                                 annotation = "utr"
+                      ))
+  } else if (exon.starts[i] > coding.end && exon.ends[i] > coding.end) {
+    gene.map <- rbind(gene.map,
+                      data.table(start = exon.starts[i],
+                                 end = exon.ends[i],
+                                 ymin = -0.25,
+                                 ymax = 0.25,
+                                 annotation = "utr"
+                      ))
+  } else if (exon.starts[i] < coding.start && exon.ends[i] > coding.end) {
+    # Single exon gene <-  make three exons:
+    gene.map <- rbind(gene.map,
+                      data.table(start = c(exon.starts[i],coding.start,coding.end),
+                                 end = c(coding.start,coding.end,exon.ends[i]),
+                                 ymin = c(-0.25,-0.5,-0.25),
+                                 ymax = c(0.25,0.5,0.25),
+                                 annotation = c("utr","cds","utr")
+                      ))
+  } else if (exon.starts[i] < coding.start && exon.ends[i] > coding.start) {
+    # CDS + UTR <- make two exons
+    gene.map <- rbind(gene.map,
+                      data.table(start = c(exon.starts[i],coding.start),
+                                 end = c(coding.start,exon.ends[i]),
+                                 ymin = c(-0.25,-0.5),
+                                 ymax = c(0.25,0.5),
+                                 annotation = c("utr","cds")
+                      ))
+  } else if (exon.starts[i] < coding.end && exon.ends[i] > coding.end) {
+    # CDS + UTR <- make two exons
+    # CDS + UTR <- make two exons
+    gene.map <- rbind(gene.map,
+                      data.table(start = c(exon.starts[i],coding.end),
+                                 end = c(coding.end,exon.ends[i]),
+                                 ymin = c(-0.5,-0.25),
+                                 ymax = c(0.5,0.25),
+                                 annotation = c("cds","utr")
+                      ))
+  } else {
+    # All other exons <- make one exon
+    gene.map <- rbind(gene.map,
+                      data.table(start = exon.starts[i],
+                                 end = exon.ends[i],
+                                 ymin = -0.5,
+                                 ymax = 0.5,
+                                 annotation = "cds"
+                      ))
+  }
+  
+  len.exon = (exon.ends[i] - exon.starts[i]) + 20
+  last.fake = last.pos + len.exon
+  pos.map <- rbind(pos.map,
+                   data.table(pos=(exon.starts[i]-10):(exon.ends[i]+10),
+                              fake.pos=last.pos:last.fake))
+  last.pos = last.fake + 1
+}
+
+# Then we merge that "fake" map on top of the actual gene map
+gene.map <- merge(gene.map, pos.map, by.x = "start", by.y = "pos")
+setnames(gene.map,"fake.pos","fake.start")
+gene.map <- merge(gene.map, pos.map, by.x = "end", by.y = "pos")
+setnames(gene.map,"fake.pos","fake.end")
+
+variants <- merge(variants, pos.map, by.x="POS",by.y="pos", all.x = T)
+variants <- variants[!is.na(fake.pos)]
+variants[,log.p:=-log10(P_BOLT_LMM_INF)]
+variants[,mod.p:=if_else(BETA < 0, T, F)]
+
+if (max(variants[,log.p], na.rm = T) > 9.5) {
+  warning(paste0("A variant in ", SYMBOL, " has a p. value greater than 9.5 and will not be plotted..."))
+}
+
+fake.coding.start <- pos.map[pos == coding.start, fake.pos]
+fake.coding.end <- pos.map[pos == coding.end, fake.pos]
+
+gene.plot <- ggplot() + 
+  geom_segment(aes(x = fake.coding.start, xend = fake.coding.end, y = 0, yend = 0),size = 1) +
+  geom_hline(yintercept = c(1.5 + -log10(1.6e-6), -1.5 - -log10(1.6e-6)),colour="red",linetype=2) +
+  geom_segment(data = variants, aes(x = fake.pos, xend = fake.pos, y = 0, yend = if_else(mod.p == T, -1.5-log.p, 1.5+log.p))) +
+  geom_segment(aes(x = fake.coding.start - 60, xend = fake.coding.start - 60, y = 2.5, yend = 8.5), arrow = arrow(length = unit(0.02, "npc")), size = 1, lineend = 'round', linejoin = 'round', colour = "darkgrey") +
+  geom_segment(aes(x = fake.coding.start - 60, xend = fake.coding.start - 60, y = -2.5, yend = -8.5), arrow = arrow(length = unit(0.02, "npc")), size = 1, lineend = 'round', linejoin = 'round', colour = "darkgrey") +
+  annotate(geom = "text", x = fake.coding.start - 40, y = 5.5, hjust = 0, label = "Pos. β", size = 5) +
+  annotate(geom = "text", x = fake.coding.start - 40, y = -5.5, hjust = 0, label = "Neg. β", size = 5) +
+  geom_rect(data = gene.map[annotation!="utr"], aes(xmin = fake.start, xmax = fake.end, ymin = ymin, ymax = ymax), fill = "lightblue", colour = "black") + 
+  geom_point(data = variants, aes(fake.pos, if_else(mod.p == T, -1.5-log.p, 1.5+log.p), size = BOLT_AC)) +
+  scale_x_continuous(name = paste(gene_info[,SYMBOL], mask, maf, "BOLT", sep = " - "), limits = c(fake.coding.start - 75, fake.coding.end + 50), breaks = c(fake.coding.start,fake.coding.end)) +
+  scale_y_continuous(name = expression(bold(-log[10](italic(p)))), breaks = c(-9.5,-7.5,-5.5,-3.5,-1.5,1.5,3.5,5.5,7.5,9.5), labels = c("8","6","4","2","0","0","2","4","6","8"), limits = c(-11,11)) +
+  scale_size_continuous(guide=guide_legend(title = "Allele Count")) +
+  coord_flex_cart(bottom=capped_horizontal(capped="both"),left=capped_vertical(capped="both")) + # Comes from the "lemon" package
+  theme
+
+if (nrow(variants[log.p > -log10(1.6e-6)]) > 0) {
+  gene.plot <- gene.plot + geom_text(data = variants[log.p > -log10(1.6e-6)], aes(fake.pos, if_else(mod.p == T, -1.5-log.p, 1.5+log.p), label = paste0("AC = ", BOLT_AC)), nudge_x = 40, size = 5, hjust = 0)
+}
+
+ggsave(filename = paste(paste(gene_info[,SYMBOL], mask, maf, "BOLT",sep = "_"),"png",sep="."), plot = gene.plot, width = 15, height = 8, dpi = 450)
+fwrite(variants, file = paste(paste(gene_info[,SYMBOL], mask, maf, "BOLT",sep = "_"),"tsv",sep="."), col.names = T, row.names = F, quote = F, na = "NA", sep = "\t")
+  
