@@ -4,17 +4,59 @@ library(tidyverse)
 library(data.table)
 library(lemon)
 library(bedr)
+library(optparse)
 
 # Read in inputs. They are:
 # 1. [1] Markers file output from BOLT
 # 2. [2] Mask name - MUST be the same as in the per-gene marker file
 # 3. [3] MAF name - MUST be the same as in the per-gene marker file
 # 4. [4] ENST ID of the gene you wish to plot
-args = commandArgs(trailingOnly = T)
-markers_file = args[1]
-mask = args[2]
-maf = args[3]
-enst = args[4]
+option_list = list(make_option(c("-m","--markers"), action="store", default=NA, type="character", help="Path to the markers.tsv.gz output from mrcepid-runassociationtesting."),
+                   make_option(c("-a","--mask"), action="store", default=NA, type="character", help="Name of the MASK that you want to plot. See README.md for possible MASK values."),
+                   make_option(c("-f","--maf"), action="store", default=NA, type="character", help="Name of the MAF that you want to plot. See README.md for possible MAF values."),
+                   make_option(c("-e","--enst"), action="store", default=NA, type="character", help="ENST ID of the gene you want to plot. Either ENST or SYMBOL is required."),
+                   make_option(c("-s","--symbol"), action="store", default=NA, type="character", help="SYMBOL of the gene you want to plot. Either ENST or SYMBOL is required."),
+                   make_option(c("-p","--phenotype"), action="store", default=NA, type="character", help="Name of the phenotype. This is only used to add a phenotype name to the resulting plot."),
+                   make_option(c("-o","--output"), action="store", default=NA, type="character", help="output prefix. Will name files like <output>.png & <output>.tsv"))
+opt = parse_args(OptionParser(option_list=option_list))
+
+if (!is.na(opt$markers)) {
+  markers_file <- opt$markers
+} else {
+  stop("Mask name (-m, --markers) not provided. Please try again!")
+}
+if (!is.na(opt$mask)) {
+  mask <- opt$mask
+} else {
+  stop("Mask name (-a, --mask) not provided. Please try again!")
+}
+if (!is.na(opt$maf)) {
+  maf <- opt$maf
+} else {
+  stop("MAF name (-f, --MAF) not provided. Please try again!")
+}
+
+# Load transcripts and get info for gene of interest
+transcripts <- fread("data/transcripts.tsv.gz")
+enst <- opt$enst
+symbol <- opt$symbol
+if (!is.na(enst)) {
+  gene_info <- transcripts[ENST == enst]
+} else if (!is.na(symbol)) {
+  gene_info <- transcripts[SYMBOL == symbol]
+  if (nrow(gene_info) > 1) {
+    stop(paste0("Found more than one gene with symbol ", symbol, ". Please try again, possibly with ENST."))
+  }
+} else {
+  stop("Neither gene ENST (-e/--enst) nor Symbol (-s/--symbol) were provided. Please try again!")
+}
+
+phenotype <- opt$phenotype
+if (!is.na(opt$output)) {
+  file_prefix <- opt$output
+} else {
+  file_prefix <- paste(paste(gene_info[,SYMBOL], mask, maf, "BOLT",sep = "_"))
+}
 
 # Eugene's Default Theme:
 theme <- theme(panel.background=element_rect(fill="white"),
@@ -31,18 +73,13 @@ theme <- theme(panel.background=element_rect(fill="white"),
                panel.grid.major=element_blank(),
                legend.key=element_blank())
 
-# Load transcripts and get info for gene of interest
-transcripts <- fread("data/transcripts.tsv.gz")
-gene_info <- transcripts[ENST == enst]
-if (nrow(gene_info) > 1) {
-  stop(paste0("Found more than one gene with symbol ", symbol, ". Please try again."))
-}
+
 
 # Now load the gene's exon model:
 exon_models <- fread("data/exon_models.txt.gz")
 setnames(exon_models, names(exon_models), c("transcript","cdsStart","cdsEnd","numExons","exonStarts","exonEnds","transcriptType"))
 exon_models[,transcript:=str_split(transcript,"\\.",simplify = T)[1],by=1:nrow(exon_models)]
-ensembl_annotation_gene <- exon_models[transcript == enst]
+ensembl_annotation_gene <- exon_models[transcript == gene_info[,ENST]]
 
 # Decide which query to use:
 query <- switch (mask, 
@@ -60,6 +97,7 @@ query <- switch (mask,
 if (is.null(query)) {
   stop(paste0("Mask name - ", mask, " - was not parsed properly. Please try again!"))
 }
+
 
 if (maf == "MAF_01") {
   query <- paste0(query, ' & AF<0.001')
@@ -90,7 +128,7 @@ variants[,P_BOLT_LMM_INF:=as.double(P_BOLT_LMM_INF)]
 variants[,BETA:=as.double(BETA)]
 
 # Make sure the right gene is included
-variants <- variants[ENST == enst]
+variants <- variants[ENST == gene_info[,ENST]]
 
 # Make sure the right variants are include
 variants <- variants[eval(parse(text=query))]
@@ -193,6 +231,12 @@ if (max(variants[,log.p], na.rm = T) > 9.5) {
 fake.coding.start <- pos.map[pos == coding.start, fake.pos]
 fake.coding.end <- pos.map[pos == coding.end, fake.pos]
 
+if (!is.na(phenotype)) {
+  x_axis_name <- paste(gene_info[,SYMBOL], mask, maf, phenotype, "BOLT", sep = " - ")
+} else {
+  x_axis_name <- paste(gene_info[,SYMBOL], mask, maf, "BOLT", sep = " - ")
+}
+
 gene.plot <- ggplot() + 
   geom_segment(aes(x = fake.coding.start, xend = fake.coding.end, y = 0, yend = 0),size = 1) +
   geom_hline(yintercept = c(1.5 + -log10(1.6e-6), -1.5 - -log10(1.6e-6)),colour="red",linetype=2) +
@@ -203,7 +247,7 @@ gene.plot <- ggplot() +
   annotate(geom = "text", x = fake.coding.start - 40, y = -5.5, hjust = 0, label = "Neg. β", size = 5) +
   geom_rect(data = gene.map[annotation!="utr"], aes(xmin = fake.start, xmax = fake.end, ymin = ymin, ymax = ymax), fill = "lightblue", colour = "black") + 
   geom_point(data = variants, aes(fake.pos, if_else(mod.p == T, -1.5-log.p, 1.5+log.p), size = BOLT_AC)) +
-  scale_x_continuous(name = paste(gene_info[,SYMBOL], mask, maf, "BOLT", sep = " - "), limits = c(fake.coding.start - 75, fake.coding.end + 50), breaks = c(fake.coding.start,fake.coding.end)) +
+  scale_x_continuous(name = x_axis_name, limits = c(fake.coding.start - 75, fake.coding.end + 50), breaks = c(fake.coding.start,fake.coding.end)) +
   scale_y_continuous(name = expression(bold(-log[10](italic(p)))), breaks = c(-9.5,-7.5,-5.5,-3.5,-1.5,1.5,3.5,5.5,7.5,9.5), labels = c("8","6","4","2","0","0","2","4","6","8"), limits = c(-11,11)) +
   scale_size_continuous(guide=guide_legend(title = "Allele Count")) +
   coord_flex_cart(bottom=capped_horizontal(capped="both"),left=capped_vertical(capped="both")) + # Comes from the "lemon" package
@@ -213,6 +257,6 @@ if (nrow(variants[log.p > -log10(1.6e-6)]) > 0) {
   gene.plot <- gene.plot + geom_text(data = variants[log.p > -log10(1.6e-6)], aes(fake.pos, if_else(mod.p == T, -1.5-log.p, 1.5+log.p), label = paste0("AC = ", BOLT_AC)), nudge_x = 40, size = 5, hjust = 0)
 }
 
-ggsave(filename = paste(paste(gene_info[,SYMBOL], mask, maf, "BOLT",sep = "_"),"png",sep="."), plot = gene.plot, width = 15, height = 8, dpi = 450)
-fwrite(variants, file = paste(paste(gene_info[,SYMBOL], mask, maf, "BOLT",sep = "_"),"tsv",sep="."), col.names = T, row.names = F, quote = F, na = "NA", sep = "\t")
+ggsave(filename = paste(file_prefix,"png",sep="."), plot = gene.plot, width = 15, height = 8, dpi = 450)
+fwrite(variants, file = paste(file_prefix,"tsv",sep="."), col.names = T, row.names = F, quote = F, na = "NA", sep = "\t")
   
