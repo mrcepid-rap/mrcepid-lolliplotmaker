@@ -99,4 +99,4 @@ is the gene SYMBOL for the gene provided with ENST/SYMBOL. This prefix can be ch
 1. An image like the example given at the top of the page.
 2. A tab-delimited TSV file of annotated variants that were used to build the image.
 
-These files will be placed in the root directory of this repository.
+By default, these files will be placed in the root directory of this repository.
