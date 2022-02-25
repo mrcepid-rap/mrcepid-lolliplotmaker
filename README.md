@@ -20,6 +20,7 @@ This script requires the following R packages to be installed:
 * [tidyverse](https://cran.r-project.org/web/packages/tidyverse/index.html)
 * [lemon](https://cran.r-project.org/web/packages/lemon/index.html)
 * [bedr](https://cran.r-project.org/web/packages/bedr/index.html)
+* [optparse](https://cran.r-project.org/web/packages/optparse/index.html)
 
 ### Getting This Tool
 
