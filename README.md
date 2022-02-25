@@ -30,7 +30,7 @@ After installing required packages/tools, do:
 ```
 git clone https://github.com/mrcepid-rap/mrcepid-lolliplotmaker.git
 cd mrcepid-lolliplotmaker/
-./lolliplot_maker.R <PHENOTYPE>.bolt.markers.BOLT.stats.tsv.gz <MASK> <MAF> <ENST>
+./lolliplot_maker.R --markers <PHENOTYPE>.bolt.markers.BOLT.stats.tsv.gz --mask <MASK> --maf <MAF> --enst <ENST>
 ```
 
 ## Running
