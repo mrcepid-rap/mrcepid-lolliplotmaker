@@ -93,8 +93,8 @@ bgzip/tabix must be installed and in your path to work, but this should already 
 
 ## Outputs
 
-This script generates two outputs with a file prefix like `<SYMBOL>_<MASK>_<MAF>_BOLT.*`, where `<SYMBOL>` is the gene 
-SYMBOL for the gene provided with ENST.
+By default, this script generates two outputs with a file prefix like `<SYMBOL>_<MASK>_<MAF>_BOLT.*`, where `<SYMBOL>` 
+is the gene SYMBOL for the gene provided with ENST/SYMBOL. This prefix can be changed with the `-o/--output` option. 
 
 1. An image like the example given at the top of the page.
 2. A tab-delimited TSV file of annotated variants that were used to build the image.
