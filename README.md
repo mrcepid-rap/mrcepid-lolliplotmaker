@@ -10,7 +10,8 @@ This is a short R script that makes lolliplots with annotated variant informatio
 
 This script requires the following tools to be installed and in your `$PATH`:
 
-* [tabix](http://www.htslib.org/doc/tabix.html)
+* [tabix](http://www.htslib.org/doc/tabix.html) – **MUST be a version > 1.0**
+* [bedtools](https://bedtools.readthedocs.io/en/latest/)
 
 ### Required R Packages:
 
