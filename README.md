@@ -51,7 +51,8 @@ All options are described below in detail:
 | -e        | --enst      | An ENST Id of the gene you wish to plot. **EITHER** --enst OR --symbol must be provided                                                                                                     |
 | -s        | --symbol    | The HGNC gene symbol you wish to plot. **EITHER** --enst OR --symbol must be provided                                                                                                       | 
 | -p        | --phenotype | A phenotype name. This is NOT used to select data and simply adds an additional label on the x-axis of the resulting plot (see example image above).                                        |
-| -o        | --output    | An output prefix to use for naming the resulting outputs. A path can be included at the beggining of this string to redirect to a different folder. This option is not required by default. |
+| -o        | --output    | An output prefix to use for naming the resulting outputs. A path can be included at the beginning of this string to redirect to a different folder. This option is not required by default. |
+| -v        | --pvalue    | Set the p. value threshold for drawing vertical lines and labelling allele count [5x10-8].                                                                                                  |
 | -h        | --help      | Print the help dialogue                                                                                                                                                                     |
 
 ### Important Notes on Inputs:
