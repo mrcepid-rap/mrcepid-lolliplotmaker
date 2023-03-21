@@ -18,7 +18,10 @@ option_list = list(make_option(c("-m","--markers"), action="store", default=NA, 
                    make_option(c("-s","--symbol"), action="store", default=NA, type="character", help="SYMBOL of the gene you want to plot. Either ENST or SYMBOL is required."),
                    make_option(c("-p","--phenotype"), action="store", default=NA, type="character", help="Name of the phenotype. This is only used to add a phenotype name to the resulting plot."),
                    make_option(c("-o","--output"), action="store", default=NA, type="character", help="output prefix. Will name files like <output>.png & <output>.tsv"),
-                   make_option(c("-v","--pvalue"), action="store", default=5.0e-8, type="double", help="P. value threshold to label Allele Counts [5.0e-8]"))
+                   make_option(c("-v","--pvalue"), action="store", default=5.0e-8, type="double", help="P. value threshold to label Allele Counts [5.0e-8]"),
+                   make_option(c("-t","--transcripts"), action="store", default='data/transcripts.tsv.gz', type="character", help="Path to the transcripts annotation file [data/transcripts.tsv.gz]"),
+                   make_option(c("-x","--exons"), action="store", default='data/exon_models.txt.gz', type="character", help="Path to exon models [data/exon_models.txt.gz]"),
+                   make_option(c("-y","--ymax"), action="store", default=10, type="double", help="Max -log10(p-value) (y-axis) when plotting. Values less than 1 will be -log10 transformed [10]."))
 opt = parse_args(OptionParser(option_list=option_list))
 
 if (!is.na(opt$markers)) {
@@ -38,7 +41,11 @@ if (!is.na(opt$maf)) {
 }
 
 # Load transcripts and get info for gene of interest
-transcripts <- fread("data/transcripts.tsv.gz")
+if (file.exists(opt$transcripts)) {
+  transcripts <- fread(opt$transcripts)
+} else {
+  stop("File provided to --transcripts does not exist. The default path (data/transcripts.tsv.gz) only works from the root directory of this repository.")
+}
 enst <- opt$enst
 symbol <- opt$symbol
 if (!is.na(enst)) {
@@ -60,6 +67,19 @@ if (!is.na(opt$output)) {
 }
 pvalue <- opt$pvalue
 
+if (opt$ymax < 1) {
+  cat("-y / --ymax is less than 1, scaling to -log10(ymax)...")
+  plot_ymax <- -log10(opt$ymax)
+} else {
+  plot_ymax <- opt$ymax
+}
+# And set y-axis limits/labels/breaks according to plot_ymax
+plot_ylimits <- c((-1 * plot_ymax) - 3,plot_ymax + 3)
+plot_ylabels <- seq(0, plot_ymax, by = plot_ymax / 5)
+plot_ybreaks <- plot_ylabels + 1.5
+plot_ybreaks <- c(-1 * rev(plot_ybreaks), plot_ybreaks)
+plot_ylabels <- c(rev(plot_ylabels), plot_ylabels)
+
 # Eugene's Default Theme:
 theme <- theme(panel.background=element_rect(fill="white"),
                line=element_line(size=1,colour="black",lineend="round"),
@@ -77,7 +97,11 @@ theme <- theme(panel.background=element_rect(fill="white"),
 
 
 # Now load the gene's exon model:
-exon_models <- fread("data/exon_models.txt.gz")
+if (file.exists(opt$exons)) {
+  exon_models <- fread(opt$exons)
+} else {
+  stop("File provided to --exons does not exist. The default path (data/exon_models.txt.gz) only works from the root directory of this repository.")
+}
 setnames(exon_models, names(exon_models), c("transcript","cdsStart","cdsEnd","numExons","exonStarts","exonEnds","transcriptType"))
 exon_models[,transcript:=str_split(transcript,"\\.",simplify = T)[1],by=1:nrow(exon_models)]
 ensembl_annotation_gene <- exon_models[transcript == gene_info[,ENST]]
@@ -225,8 +249,8 @@ variants <- variants[!is.na(fake.pos)]
 variants[,log.p:=-log10(P_BOLT_LMM_INF)]
 variants[,mod.p:=if_else(BETA < 0, T, F)]
 
-if (max(variants[,log.p], na.rm = T) > 10) {
-  warning(paste0("A variant in ", gene_info[,SYMBOL], " has a log10 p. value greater than 10 and will not be plotted..."))
+if (max(variants[,log.p], na.rm = T) > plot_ymax) {
+  warning(paste0("A variant in ", gene_info[,SYMBOL], " has a log10 p. value greater than ", plot_ymax, " (max -log10 P = ",  variants[,sprintf("%0.1f", max(log.p,na.rm = T))], "; change with -y / --ymax) and will not be plotted..."))
 }
 
 fake.coding.start <- pos.map[pos == coding.start, fake.pos]
@@ -249,7 +273,7 @@ gene.plot <- ggplot() +
   geom_rect(data = gene.map[annotation!="utr"], aes(xmin = fake.start, xmax = fake.end, ymin = ymin, ymax = ymax), fill = "lightblue", colour = "black") + 
   geom_point(data = variants, aes(fake.pos, if_else(mod.p == T, -1.5-log.p, 1.5+log.p), size = BOLT_AC)) +
   scale_x_continuous(name = x_axis_name, limits = c(fake.coding.start - 75, fake.coding.end + 50), breaks = c(fake.coding.start,fake.coding.end)) +
-  scale_y_continuous(name = expression(bold(-log[10](italic(p)))), breaks = c(-11.5,-9.5,-7.5,-5.5,-3.5,-1.5,1.5,3.5,5.5,7.5,9.5,11.5), labels = c("10","8","6","4","2","0","0","2","4","6","8","10"), limits = c(-13,13)) +
+  scale_y_continuous(name = expression(bold(-log[10](italic(p)))), breaks = plot_ybreaks, labels = plot_ylabels, limits = plot_ylimits) +
   scale_size_continuous(guide=guide_legend(title = "Allele Count")) +
   coord_flex_cart(bottom=capped_horizontal(capped="both"),left=capped_vertical(capped="both")) + # Comes from the "lemon" package
   theme
@@ -258,6 +282,6 @@ if (nrow(variants[log.p > -log10(pvalue)]) > 0) {
   gene.plot <- gene.plot + geom_text(data = variants[log.p > -log10(pvalue)], aes(fake.pos, if_else(mod.p == T, -1.5-log.p, 1.5+log.p), label = paste0("AC = ", BOLT_AC)), nudge_x = 40, size = 5, hjust = 0)
 }
 
-ggsave(filename = paste(file_prefix,"png",sep="."), plot = gene.plot, width = 15, height = 8, dpi = 450)
+ggsave(filename = paste(file_prefix,"png",sep="."), plot = gene.plot, width = 20, height = 8, dpi = 450)
 fwrite(variants, file = paste(file_prefix,"tsv",sep="."), col.names = T, row.names = F, quote = F, na = "NA", sep = "\t")
   
